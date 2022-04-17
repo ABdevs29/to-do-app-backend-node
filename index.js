@@ -2,6 +2,9 @@ const express = require("express");
 const { MongoClient, ObjectId } = require("mongodb");
 const dotenv = require("dotenv");
 const cors = require("cors");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const auth = require("./middlewares/auth.js");
 
 const app = express();
 dotenv.config();
@@ -25,7 +28,7 @@ app.get("/", (req, res) => {
 });
 
 //Add task
-app.post("/tasks/create", async (req, res) => {
+app.post("/tasks/create", auth, async (req, res) => {
   const client = await createConnection();
   const newTask = req.body;
 
@@ -50,7 +53,7 @@ app.post("/tasks/create", async (req, res) => {
 });
 
 //Get all tasks
-app.get("/tasks", async (req, res) => {
+app.get("/tasks", auth, async (req, res) => {
   const client = await createConnection();
   const tasks = await client
     .db("to-do-app")
@@ -63,7 +66,7 @@ app.get("/tasks", async (req, res) => {
 });
 
 //Find particular task by ID
-app.get("/tasks/:id", async (req, res) => {
+app.get("/tasks/:id", auth, async (req, res) => {
   const client = await createConnection();
   const taskId = req.params.id;
 
@@ -78,7 +81,7 @@ app.get("/tasks/:id", async (req, res) => {
 });
 
 //Update particular task using ID
-app.patch("/tasks/:id", async (req, res) => {
+app.patch("/tasks/:id", auth, async (req, res) => {
   const client = await createConnection();
   const taskId = req.params.id;
   const updatedData = req.body;
@@ -103,7 +106,7 @@ app.patch("/tasks/:id", async (req, res) => {
 });
 
 //Delete task using ID
-app.delete("/tasks/:id", async (req, res) => {
+app.delete("/tasks/:id", auth, async (req, res) => {
   const client = await createConnection();
   const taskId = req.params.id;
 
@@ -117,7 +120,7 @@ app.delete("/tasks/:id", async (req, res) => {
 });
 
 //Filter tasks using categories
-app.get("/tasks/category/:name", async (req, res) => {
+app.get("/tasks/category/:name", auth, async (req, res) => {
   const client = await createConnection();
   const category = req.params.name;
 
@@ -132,7 +135,7 @@ app.get("/tasks/category/:name", async (req, res) => {
 });
 
 //Filter tasks by UserName
-app.get("/tasks/user/:name", async (req, res) => {
+app.get("/tasks/user/:name", auth, async (req, res) => {
   const client = await createConnection();
   const userName = req.params.name;
 
@@ -147,7 +150,7 @@ app.get("/tasks/user/:name", async (req, res) => {
 });
 
 //Filter tasks by Year
-app.get("/tasks/year/:year", async (req, res) => {
+app.get("/tasks/year/:year", auth, async (req, res) => {
   const client = await createConnection();
   const year = req.params.year;
 
@@ -166,7 +169,7 @@ app.get("/tasks/year/:year", async (req, res) => {
 });
 
 //Filter tasks by Year and month
-app.get("/tasks/year/:year/:month", async (req, res) => {
+app.get("/tasks/year/:year/:month", auth, async (req, res) => {
   const client = await createConnection();
   const year = req.params.year;
   const month =
@@ -191,7 +194,7 @@ app.get("/tasks/year/:year/:month", async (req, res) => {
 });
 
 //Filter tasks by Weekday tasks (Mon-Fri)
-app.get("/tasks/weekday/all", async (req, res) => {
+app.get("/tasks/weekday/all", auth, async (req, res) => {
   const client = await createConnection();
 
   const filteredTasks = await client
@@ -215,7 +218,7 @@ app.get("/tasks/weekday/all", async (req, res) => {
         Math.floor(+computedYear / 4) +
         Math.floor(+century / 4)) %
       7;
-      console.log(weekdayNum);
+    console.log(weekdayNum);
     if (weekdayNum !== 6 && weekdayNum !== 0) {
       return el;
     }
@@ -225,7 +228,7 @@ app.get("/tasks/weekday/all", async (req, res) => {
 });
 
 //Filter tasks by Weekend tasks (Sat, Sun)
-app.get("/tasks/weekend/all", async (req, res) => {
+app.get("/tasks/weekend/all", auth, async (req, res) => {
   const client = await createConnection();
 
   const filteredTasks = await client
@@ -249,7 +252,7 @@ app.get("/tasks/weekend/all", async (req, res) => {
         Math.floor(+computedYear / 4) +
         Math.floor(+century / 4)) %
       7;
-      console.log(weekdayNum);
+    console.log(weekdayNum);
     if (weekdayNum === 6 || weekdayNum === 0) {
       return el;
     }
@@ -258,8 +261,58 @@ app.get("/tasks/weekend/all", async (req, res) => {
   result.length !== 0 ? res.send(result) : res.send("No results found");
 });
 
+// Add user
+app.post("/users/signup", async (req, res) => {
+  const client = await createConnection();
+  const { userName, password } = req.body;
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(password, salt);
+
+  const user = await client
+    .db("to-do-app")
+    .collection("users")
+    .insertOne({ userName, password: hashedPassword });
+
+  console.log(user);
+  res.send(user);
+});
+
+// Get all Users
+app.get("/users", auth, async (req, res) => {
+  const client = await createConnection();
+
+  const usersList = await client
+    .db("to-do-app")
+    .collection("users")
+    .find({})
+    .toArray();
+
+  console.log(usersList);
+  res.send(usersList);
+});
+
+// User Login
+app.post("/users/login", async (req, res) => {
+  const client = await createConnection();
+  const { userName, password } = req.body;
+
+  const result = await client
+    .db("to-do-app")
+    .collection("users")
+    .findOne({ userName });
+  const storedDbPassword = result.password;
+  const doesPasswordMatch = await bcrypt.compare(password, storedDbPassword);
+
+  if (doesPasswordMatch) {
+    const token = jwt.sign({ id: result._id }, process.env.SECRET_KEY);
+    res.send({ message: "Login successfull!", token });
+  } else {
+    res.send({ message: "Invalid login credentials" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log("Server running at PORT: ", PORT);
 });
 
-//TODO: Add Users database and authentication using JWT Web Tokens. Allow access to user tasks only if user is registered in database.
+//TODO: Add routing
